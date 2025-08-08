@@ -194,6 +194,17 @@ class Workspace:
                 '[yellow]' + ' '.join(unused) + '[/]'))
         print()
 
+    def print_reverse_alphabet(self):
+        print("Your final substitution alphabet was:\n")
+        letters = []
+        for c in ascii_uppercase:
+            try:
+                index = self.alphabet.index(c)
+                letters.append(index_letter(index))
+            except ValueError:
+                letters.append('_')
+        print(''.join(letters))
+
     def make_prompt(self):
         prompt = ''
         if self.solos:
@@ -230,6 +241,8 @@ class Workspace:
                 if index in self.solos:
                     self.set_all_substitutions(index)
             elif len(choice) > 0 and choice[0] == 'Q':
+                print("OK, quitting.\n")
+                self.print_reverse_alphabet()
                 break
 
 
