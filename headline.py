@@ -14,6 +14,7 @@ from rich.prompt import Prompt
 
 FREQUENCY = 'ETAOINSHRDLCUMWFGYPBVKJXQZ'
 NON_WORD_CHARS = re.compile(r"[^A-Z'-]")
+NUMBER_PREFIX = re.compile(r'^\d+\.?\s*')
 SUB_PROMPT = re.compile(r'^[A-Z].?[A-Z]$')
 WORD_PROMPT = re.compile(r'^\d+$')
 MATCH_LIMIT = 10
@@ -48,7 +49,7 @@ def substitute(cipher, alphabet):
 
 class Workspace:
     def __init__(self, ciphertext=None):
-        self.ciphertext = ciphertext
+        self.set_ciphertext(ciphertext)
         self.alphabet = [None] * 26
 
         self.wordlist = defaultdict(list)
@@ -63,6 +64,11 @@ class Workspace:
         self.matches = []
         self.solos = []
         self.update_matches()
+
+    def set_ciphertext(self, text):
+        self.ciphertext = text.strip().upper()
+        # If there is a numeric prefix, remove it
+        self.ciphertext = NUMBER_PREFIX.sub('', self.ciphertext)
 
     def find_word_matches(self, word):
         # Strip out punctuation characters except apostrophe and hyphen
@@ -224,7 +230,7 @@ class Workspace:
     def run(self):
         if self.ciphertext is None:
             text = Prompt.ask("Input the ciphertext")
-            self.ciphertext = text
+            self.set_ciphertext(text)
 
         while True:
             console.clear()
