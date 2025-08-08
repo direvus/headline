@@ -62,7 +62,6 @@ class Workspace:
 
         self.words = self.ciphertext.split()
         self.matches = []
-        self.solos = []
         self.update_matches()
 
     def set_ciphertext(self, text):
@@ -105,20 +104,16 @@ class Workspace:
 
     def update_matches(self):
         self.matches = []
-        self.solos = []
         for i, word in enumerate(self.words):
             matches = list(self.find_word_matches(word))
             self.matches.append(matches)
-            if len(matches) == 1 and not self.is_word_solved(i):
-                self.solos.append(i)
 
     def set_substitution(self, source, target):
         index = letter_index(source)
         self.alphabet[index] = target
 
-    def set_all_substitutions(self, index):
+    def set_all_substitutions(self, index, target):
         word = self.words[index]
-        target = self.matches[index][0]
         for i, c in enumerate(word):
             if c in ascii_uppercase:
                 self.set_substitution(c, target[i])
@@ -212,20 +207,42 @@ class Workspace:
         print(''.join(letters))
 
     def make_prompt(self):
-        prompt = ''
-        if self.solos:
-            labels = []
-            for i in self.solos:
-                labels.append(f'[yellow]{i + 1}[/]')
-
-            prompt += (
-                    ', '.join(labels) + ' to set all substitutions '
-                    'for that word\n')
-
-        prompt += (
+        max = len(self.words)
+        prompt = (
+                f"[yellow]1[/]-[yellow]{max}[/] to select a matching word,\n"
                 "[yellow]XY[/] to set a substitution, or "
                 "[yellow]Q[/] to quit")
         return prompt
+
+    def select_match(self, index):
+        if index < 0 or index >= len(self.words):
+            return
+        matches = self.matches[index]
+        if len(matches) == 0:
+            return
+        if len(matches) == 1:
+            self.set_all_substitutions(index, matches[0])
+            return
+
+        print()
+        count = min(MATCH_LIMIT, len(matches))
+        for i in range(count):
+            m = matches[i]
+            n = i + 1
+            print(f'[yellow]{n:3d}[/]. {m}')
+
+        while True:
+            prompt = (
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a word, or "
+                    "[yellow]X[/] to exit")
+            choice = Prompt.ask(prompt).upper()
+            if choice == 'X':
+                return
+            elif WORD_PROMPT.match(choice):
+                i = int(choice) - 1
+                if i >= 0 and i < count:
+                    self.set_all_substitutions(index, matches[i])
+                return
 
     def run(self):
         if self.ciphertext is None:
@@ -244,8 +261,7 @@ class Workspace:
                 self.update_matches()
             elif WORD_PROMPT.match(choice):
                 index = int(choice) - 1
-                if index in self.solos:
-                    self.set_all_substitutions(index)
+                self.select_match(index)
             elif len(choice) > 0 and choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.print_reverse_alphabet()
