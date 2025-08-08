@@ -90,8 +90,12 @@ class Workspace:
                     if c in groups:
                         parts.append(f'\\{groups[c]}')
                     else:
-                        parts.append(group)
+                        # Use negative lookaheads to require that no previously
+                        # matched groups can match here
                         groupnum += 1
+                        for i in range(1, groupnum):
+                            parts.append(f'(?!\\{i})')
+                        parts.append(group)
                         groups[c] = groupnum
                 else:
                     parts.append(sub)
@@ -210,8 +214,8 @@ class Workspace:
         max = len(self.words)
         prompt = (
                 f"[yellow]1[/]-[yellow]{max}[/] to select a matching word,\n"
-                "[yellow]XY[/] to set a substitution, or "
-                "[yellow]Q[/] to quit")
+                "[yellow]XY[/] to set a substitution, "
+                "[yellow]R[/] to reset, or [yellow]Q[/] to quit")
         return prompt
 
     def select_match(self, index):
@@ -254,6 +258,8 @@ class Workspace:
             self.print()
             prompt = self.make_prompt()
             choice = Prompt.ask(prompt).upper()
+            if not choice.strip():
+                continue
             if SUB_PROMPT.match(choice):
                 source = choice[0]
                 target = choice[-1]
@@ -262,10 +268,13 @@ class Workspace:
             elif WORD_PROMPT.match(choice):
                 index = int(choice) - 1
                 self.select_match(index)
-            elif len(choice) > 0 and choice[0] == 'Q':
+            elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.print_reverse_alphabet()
                 break
+            elif choice[0] == 'R':
+                self.alphabet = [None] * 26
+                self.update_matches()
 
 
 def main(args):
