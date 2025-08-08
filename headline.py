@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 import argparse
+import os
 import re
-from collections import defaultdict, Counter
+import sys
+from collections import defaultdict
 from string import ascii_uppercase
 
 from rich import print
@@ -48,11 +50,15 @@ class Workspace:
     def __init__(self, ciphertext=None):
         self.ciphertext = ciphertext
         self.alphabet = [None] * 26
-        self.wordlist = defaultdict(set)
-        with open('/usr/share/dict/words', 'r') as fp:
+
+        self.wordlist = defaultdict(list)
+        dirname = os.path.dirname(sys.argv[0])
+        path = os.path.join(dirname, 'wordlist', 'words')
+        with open(path, 'r') as fp:
             for line in fp:
-                word = line.strip().upper()
-                self.wordlist[len(word)].add(word)
+                word = line.strip()
+                self.wordlist[len(word)].append(word)
+
         self.words = self.ciphertext.split()
         self.matches = []
         self.solos = []
