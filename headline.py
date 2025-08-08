@@ -13,7 +13,7 @@ from rich.prompt import Prompt
 
 
 FREQUENCY = 'ETAOINSHRDLCUMWFGYPBVKJXQZ'
-NON_WORD_CHARS = re.compile(r"[^A-Z']")
+NON_WORD_CHARS = re.compile(r"[^A-Z'-]")
 SUB_PROMPT = re.compile(r'^[A-Z].?[A-Z]$')
 WORD_PROMPT = re.compile(r'^\d+$')
 MATCH_LIMIT = 10
@@ -65,14 +65,16 @@ class Workspace:
         self.update_matches()
 
     def find_word_matches(self, word):
-        # Strip out punctuation characters except apostrophe
+        # Strip out punctuation characters except apostrophe and hyphen
         word = NON_WORD_CHARS.sub('', word)
 
         # Make up a regex character class for all the unsolved letters
         solved = {c for c in self.alphabet if c is not None}
         unsolved = set(ascii_uppercase) - solved
-        cc = '[' + ''.join(list(unsolved)) + ']'
+        group = '([' + ''.join(list(unsolved)) + '])'
         parts = ['^']
+        groups = {}
+        groupnum = 0
         for c in word:
             if c not in ascii_uppercase:
                 parts.append(c)
@@ -80,7 +82,12 @@ class Workspace:
                 index = letter_index(c)
                 sub = self.alphabet[index]
                 if sub is None:
-                    parts.append(cc)
+                    if c in groups:
+                        parts.append(f'\\{groups[c]}')
+                    else:
+                        parts.append(group)
+                        groupnum += 1
+                        groups[c] = groupnum
                 else:
                     parts.append(sub)
         parts.append('$')
