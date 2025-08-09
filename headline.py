@@ -50,10 +50,7 @@ def substitute(cipher, alphabet):
 
         index = letter_index(c)
         sub = alphabet[index]
-        if sub is None:
-            result.append('_')
-        else:
-            result.append(sub)
+        result.append('_' if sub is None else sub)
     return ''.join(result)
 
 
@@ -66,6 +63,33 @@ def reverse_alphabet(alphabet):
         except ValueError:
             letters.append('_')
     return ''.join(letters)
+
+
+def serialise_alphabet(alphabet):
+    chars = [x or '_' for x in alphabet]
+    return ''.join(chars)
+
+
+def deserialise_alphabet(text):
+    return [x if x in ascii_uppercase else None for x in text]
+
+
+def find_chains(alphabet):
+    values = set(alphabet)
+    chains = set()
+    for i, c in enumerate(alphabet):
+        source = index_letter(i)
+        # Look for a source that isn't a known target, so we know we're at the
+        # beginning of a chain
+        if c is None or source in values:
+            continue
+        target = c
+        chain = [source]
+        while target is not None:
+            chain.append(target)
+            target = alphabet[letter_index(target)]
+        chains.add(''.join(chain))
+    return chains
 
 
 class CipherView:
@@ -329,8 +353,8 @@ class PuzzleView:
                 lines.append(line)
 
                 alphabet = reverse_alphabet(solution)
-                chars = [x or '_' for x in alphabet]
-                lines.append(' ' * 5 + ''.join(chars) + '\n')
+                text = serialise_alphabet(alphabet)
+                lines.append(' ' * 5 + text + '\n')
         print(Panel('\n'.join(lines), title=self.puzzle))
 
     def save_solutions(self):
@@ -339,8 +363,7 @@ class PuzzleView:
                 if solution is None:
                     fp.write('_' * 26)
                 else:
-                    chars = [x or '_' for x in solution]
-                    fp.write(''.join(chars))
+                    fp.write(serialise_alphabet(solution))
                 fp.write('\n')
 
     def run(self):
