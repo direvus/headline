@@ -57,10 +57,24 @@ def substitute(cipher, alphabet):
     return ''.join(result)
 
 
+def reverse_alphabet(alphabet):
+    letters = []
+    for c in ascii_uppercase:
+        try:
+            index = alphabet.index(c)
+            letters.append(index_letter(index))
+        except ValueError:
+            letters.append('_')
+    return ''.join(letters)
+
+
 class CipherView:
-    def __init__(self, ciphertext=None):
+    def __init__(self, ciphertext=None, alphabet=None):
         self.set_ciphertext(ciphertext)
-        self.alphabet = [None] * 26
+        if alphabet is None:
+            self.alphabet = [None] * 26
+        else:
+            self.alphabet = alphabet
         self.words = self.ciphertext.split()
         self.matches = []
         self.update_matches()
@@ -200,17 +214,6 @@ class CipherView:
                 '[yellow]' + ' '.join(unused) + '[/]'))
         print()
 
-    def print_reverse_alphabet(self):
-        print("Your final substitution alphabet was:\n")
-        letters = []
-        for c in ascii_uppercase:
-            try:
-                index = self.alphabet.index(c)
-                letters.append(index_letter(index))
-            except ValueError:
-                letters.append('_')
-        print(''.join(letters))
-
     def make_prompt(self):
         max = len(self.words)
         prompt = (
@@ -325,7 +328,8 @@ class PuzzleView:
                     line = f'[green]{line}[/]'
                 lines.append(line)
 
-                chars = [x or '_' for x in solution]
+                alphabet = reverse_alphabet(solution)
+                chars = [x or '_' for x in alphabet]
                 lines.append(' ' * 5 + ''.join(chars) + '\n')
         print(Panel('\n'.join(lines), title=self.puzzle))
 
