@@ -16,11 +16,21 @@ FREQUENCY = 'ETAOINSHRDLCUMWFGYPBVKJXQZ'
 NON_WORD_CHARS = re.compile(r"[^A-Z'-]")
 NUMBER_PREFIX = re.compile(r'^\d+\.?\s*')
 SUB_PROMPT = re.compile(r'^[A-Z].?[A-Z]$')
-WORD_PROMPT = re.compile(r'^\d+$')
+PLAIN_INTEGER = re.compile(r'^\d+$')
 MATCH_LIMIT = 10
+DIRNAME = os.path.dirname(sys.argv[0])
+WORDLIST = defaultdict(list)
 
 
 console = Console()
+
+
+def load_wordlist():
+    path = os.path.join(DIRNAME, 'wordlist', 'words')
+    with open(path, 'r') as fp:
+        for line in fp:
+            word = line.strip()
+            WORDLIST[len(word)].append(word)
 
 
 def letter_index(letter):
@@ -47,19 +57,10 @@ def substitute(cipher, alphabet):
     return ''.join(result)
 
 
-class Workspace:
+class CipherView:
     def __init__(self, ciphertext=None):
         self.set_ciphertext(ciphertext)
         self.alphabet = [None] * 26
-
-        self.wordlist = defaultdict(list)
-        dirname = os.path.dirname(sys.argv[0])
-        path = os.path.join(dirname, 'wordlist', 'words')
-        with open(path, 'r') as fp:
-            for line in fp:
-                word = line.strip()
-                self.wordlist[len(word)].append(word)
-
         self.words = self.ciphertext.split()
         self.matches = []
         self.update_matches()
@@ -102,7 +103,7 @@ class Workspace:
         parts.append('$')
         pattern = re.compile(''.join(parts))
 
-        wordlist = self.wordlist.get(len(word), [])
+        wordlist = WORDLIST.get(len(word), [])
         matches = filter(lambda x: pattern.match(x), wordlist)
         return matches
 
@@ -215,7 +216,9 @@ class Workspace:
         prompt = (
                 f"[yellow]1[/]-[yellow]{max}[/] to select a matching word,\n"
                 "[yellow]XY[/] to set a substitution, "
-                "[yellow]R[/] to reset, or [yellow]Q[/] to quit")
+                "[yellow]R[/] to reset,\n"
+                "[yellow]S[/] to save solution and exit, "
+                "or [yellow]X[/] to exit without saving")
         return prompt
 
     def select_match(self, index):
@@ -242,7 +245,7 @@ class Workspace:
             choice = Prompt.ask(prompt).upper()
             if choice == 'X':
                 return
-            elif WORD_PROMPT.match(choice):
+            elif PLAIN_INTEGER.match(choice):
                 i = int(choice) - 1
                 if i >= 0 and i < count:
                     self.set_all_substitutions(index, matches[i])
@@ -265,28 +268,111 @@ class Workspace:
                 target = choice[-1]
                 self.set_substitution(source, target)
                 self.update_matches()
-            elif WORD_PROMPT.match(choice):
+            elif PLAIN_INTEGER.match(choice):
                 index = int(choice) - 1
                 self.select_match(index)
-            elif choice[0] == 'Q':
-                print("OK, quitting.\n")
-                self.print_reverse_alphabet()
-                break
+            elif choice[0] == 'S':
+                print("OK, saving solution and exiting.\n")
+                return self.alphabet
+            elif choice[0] == 'X':
+                print("OK, exiting and discarding solution.\n")
+                return None
             elif choice[0] == 'R':
                 self.alphabet = [None] * 26
                 self.update_matches()
 
 
+class PuzzleView:
+    def __init__(self, puzzle):
+        self.puzzle = puzzle
+        self.ciphers = []
+        self.solutions = []
+        with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
+            for line in fp:
+                line = line.strip().upper()
+                # If there is a numeric prefix, remove it
+                line = NUMBER_PREFIX.sub('', line)
+                self.ciphers.append(line)
+                self.solutions.append(None)
+        try:
+            self.solution_path = os.path.join(DIRNAME, 'solutions', puzzle)
+            solution_dir = os.path.dirname(self.solution_path)
+            os.makedirs(solution_dir, exist_ok=True)
+
+            with open(self.solution_path, 'r') as fp:
+                index = 0
+                for line in fp:
+                    line = line.strip().upper()
+                    alphabet = [
+                            x if x in ascii_uppercase else None
+                            for x in line[:26]]
+                    self.solutions[index] = alphabet
+                    index += 1
+        except IOError:
+            pass
+
+    def print(self):
+        lines = []
+        for i, cipher in enumerate(self.ciphers):
+            n = i + 1
+            lines.append(f'[yellow]{n:3d}[/]. {cipher}')
+            solution = self.solutions[i]
+            if solution is None:
+                lines.append('\n\n')
+            else:
+                line = ' ' * 5 + substitute(cipher, solution)
+                if '_' not in line:
+                    line = f'[green]{line}[/]'
+                lines.append(line)
+                lines.append('\n')
+        print(Panel('\n'.join(lines), title=self.puzzle))
+
+    def save_solutions(self):
+        with open(self.solution_path, 'w') as fp:
+            for solution in self.solutions:
+                if solution is None:
+                    fp.write('_' * 26)
+                else:
+                    chars = [x or '_' for x in solution]
+                    fp.write(''.join(chars))
+                fp.write('\n')
+
+    def run(self):
+        while True:
+            console.clear()
+            self.print()
+
+            count = len(self.ciphers)
+            prompt = (
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher, "
+                    "or [yellow]Q[/] to quit")
+            choice = Prompt.ask(prompt).strip().upper()
+            if not choice:
+                continue
+            if PLAIN_INTEGER.match(choice):
+                index = int(choice) - 1
+                if index >= 0 and index < len(self.ciphers):
+                    view = CipherView(self.ciphers[index])
+                    solution = view.run()
+                    if solution is not None:
+                        self.solutions[index] = solution
+            elif choice[0] == 'Q':
+                print("OK, quitting.\n")
+                self.save_solutions()
+                break
+
+
 def main(args):
+    load_wordlist()
     if args.interactive:
-        w = Workspace(args.ciphertext)
-        w.run()
+        menu = PuzzleView(args.puzzle)
+        menu.run()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--interactive', action='store_true')
-    parser.add_argument('-c', '--ciphertext')
+    parser.add_argument('-p', '--puzzle')
 
     args = parser.parse_args()
     main(args)
