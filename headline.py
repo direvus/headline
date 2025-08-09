@@ -324,7 +324,9 @@ class PuzzleView:
                 if '_' not in line:
                     line = f'[green]{line}[/]'
                 lines.append(line)
-                lines.append('\n')
+
+                chars = [x or '_' for x in solution]
+                lines.append(' ' * 5 + ''.join(chars) + '\n')
         print(Panel('\n'.join(lines), title=self.puzzle))
 
     def save_solutions(self):
