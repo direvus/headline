@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+from decimate import decimate
+
 
 FREQUENCY = 'ETAOINSHRDLCUMWFGYPBVKJXQZ'
 NON_WORD_CHARS = re.compile(r"[^A-Z'-]")
@@ -75,6 +77,8 @@ def deserialise_alphabet(text):
 
 
 def find_chains(alphabet):
+    if alphabet is None:
+        return set()
     values = set(alphabet)
     chains = set()
     for i, c in enumerate(alphabet):
@@ -85,11 +89,189 @@ def find_chains(alphabet):
             continue
         target = c
         chain = [source]
-        while target is not None:
+        while target in ascii_uppercase:
             chain.append(target)
             target = alphabet[letter_index(target)]
         chains.add(''.join(chain))
     return chains
+
+
+class ChainGrid:
+    MIN_Y = -7
+    MAX_Y = 7
+
+    def __init__(self, chain_sets):
+        self.chain_sets = chain_sets
+        self.cells = {}
+        self.candidates_v = set()
+        self.candidates_h = set()
+        self.run_length = 0
+        self.run_start = None
+        across, down = chain_sets[:2]
+        across = sorted(across, key=len, reverse=True)
+        down = sorted(down, key=len, reverse=True)
+
+        self.add_across(across[0], 0, 0)
+        count = 0
+        while self.run_length < 26 and count < 4:
+            for chain in down:
+                self.find_intersections_down(chain)
+            for chain in across:
+                self.find_intersections_across(chain)
+            self.run_length, self.run_start = self.find_longest_run()
+            count += 1
+
+    def find_longest_run(self):
+        locs = self.cells.keys()
+        xs = {x for x, _ in locs}
+        ys = {y for _, y in locs}
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        max_length = 0
+        best_start = None
+        for y in range(min_y, max_y + 1):
+            length = 0
+            start = None
+            for x in range(min_x, max_x + 1):
+                loc = (x, y)
+                if loc not in self.cells:
+                    length = 0
+                    start = None
+                    continue
+                if start is None:
+                    start = loc
+                length += 1
+                if length > max_length:
+                    max_length = length
+                    best_start = start
+        return (max_length, best_start)
+
+    def get_run(self):
+        if self.run_start is None:
+            return None
+        x, y = self.run_start
+        end = x + self.run_length
+        chars = []
+        while x < end:
+            chars.append(self.cells.get((x, y), ' '))
+            x += 1
+        return ''.join(chars)
+
+    def add_across(self, text, x, y):
+        for c in text:
+            loc = (x, y)
+            if y < ChainGrid.MIN_Y or y > ChainGrid.MAX_Y:
+                continue
+            self.cells[loc] = c
+            self.candidates_v.add(loc)
+            if loc in self.candidates_h:
+                self.candidates_h.remove(loc)
+            x += 1
+
+    def add_down(self, text, x, y):
+        for c in text:
+            loc = (x, y)
+            if y < ChainGrid.MIN_Y or y > ChainGrid.MAX_Y:
+                continue
+            self.cells[loc] = c
+            self.candidates_h.add(loc)
+            if loc in self.candidates_v:
+                self.candidates_v.remove(loc)
+            y += 1
+
+    def find_intersections_down(self, text):
+        chars = set(text)
+        for loc in list(self.candidates_v):
+            char = self.cells[loc]
+            if char not in chars:
+                continue
+            x, y = loc
+            y -= text.index(char)
+            self.add_down(text, x, y)
+
+    def find_intersections_across(self, text):
+        chars = set(text)
+        for loc in list(self.candidates_h):
+            char = self.cells[loc]
+            if char not in chars:
+                continue
+            x, y = loc
+            x -= text.index(char)
+            self.add_across(text, x, y)
+
+    def __str__(self):
+        lines = []
+        locs = self.cells.keys()
+        xs = {x for x, _ in locs}
+        ys = {y for _, y in locs}
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        for y in range(min_y, max_y + 1):
+            line = []
+            x = min_x
+            while x < max_x + 1:
+                loc = (x, y)
+                if loc == self.run_start:
+                    run = self.get_run()
+                    line.append(f'[green]{run}[/]')
+                    x += self.run_length
+                else:
+                    line.append(self.cells.get((x, y), ' '))
+                    x += 1
+            lines.append(''.join(line))
+        return '\n'.join(lines)
+
+
+class ChainView:
+    def __init__(self, alphabets=None):
+        self.chain_sets = []
+        if alphabets:
+            for a in alphabets:
+                self.add_alphabet(a)
+        self.grid = self.make_grid()
+
+    def add_alphabet(self, alphabet):
+        chains = find_chains(alphabet)
+        self.chain_sets.append(chains)
+
+    def make_grid(self):
+        # The chain set with the longest chain will be written horizontally,
+        # and the set with the second-longest will be written vertically.
+        chain_sets = sorted(
+                self.chain_sets,
+                key=lambda x: max([len(y) for y in x]),
+                reverse=True)
+        grid = ChainGrid(chain_sets)
+        return grid
+
+    def print(self):
+        lines = []
+        for i, chainset in enumerate(self.chain_sets):
+            n = i + 1
+            text = ' '.join(chainset)
+            lines.append(f'[yellow]{n:3d}[/]. {text}')
+        print(Panel('\n'.join(lines), title='Chain listing'))
+
+        print(Panel(str(self.grid), title='Chain grid'))
+
+        run = self.grid.get_run()[:26]
+        length = len(run)
+        label = run
+        if length == 26:
+            label = f'[green]{label}[/]'
+        print(Panel(label, title=f'Longest run ([yellow]{length}[/])'))
+        print()
+
+    def run(self):
+        console.clear()
+        self.print()
+        prompt = "[yellow]Any key[/] to exit to puzzle view"
+        Prompt.ask(prompt)
+
+        run = self.grid.get_run()[:26]
+        if len(run) == 26:
+            return run
 
 
 class CipherView:
@@ -314,6 +496,7 @@ class PuzzleView:
         self.puzzle = puzzle
         self.ciphers = []
         self.solutions = []
+        self.chain = None
         with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
             for line in fp:
                 line = line.strip().upper()
@@ -357,6 +540,20 @@ class PuzzleView:
                 lines.append(' ' * 5 + text + '\n')
         print(Panel('\n'.join(lines), title=self.puzzle))
 
+        if self.chain is not None and len(self.chain) == 26:
+            highlights = 'VWXYZ'
+            labels = [
+                    f'[bold green]{x}[/]' if x in highlights else x
+                    for x in self.chain]
+            lines = ['     ' + ''.join(labels)]
+            for step in (3, 5, 7, 9, 11):
+                decimation = decimate(self.chain, step)
+                labels = [
+                        f'[bold green]{x}[/]' if x in highlights else x
+                        for x in decimation]
+                lines.append(f'[yellow]{step:3d}[/]. ' + ''.join(labels))
+            print(Panel('\n'.join(lines), title='Chain decimations'))
+
     def save_solutions(self):
         with open(self.solution_path, 'w') as fp:
             for solution in self.solutions:
@@ -374,6 +571,7 @@ class PuzzleView:
             count = len(self.ciphers)
             prompt = (
                     f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher, "
+                    "[yellow]C[/] to view chains, "
                     "or [yellow]Q[/] to quit")
             choice = Prompt.ask(prompt).strip().upper()
             if not choice:
@@ -385,6 +583,13 @@ class PuzzleView:
                     solution = view.run()
                     if solution is not None:
                         self.solutions[index] = solution
+            elif choice[0] == 'C':
+                alphas = []
+                for solution in self.solutions:
+                    if solution is not None:
+                        alphas.append(reverse_alphabet(solution))
+                view = ChainView(alphas)
+                self.chain = view.run()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()
