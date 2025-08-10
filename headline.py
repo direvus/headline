@@ -67,6 +67,15 @@ def reverse_alphabet(alphabet):
     return letters
 
 
+def reorder_alphabet(alphabet, key):
+    for i, k in enumerate(key):
+        c = alphabet[letter_index(k)]
+        if c is not None and c in key:
+            j = key.index(c)
+            offset = j - i
+            return key[offset:] + key[:offset]
+
+
 def serialise_alphabet(alphabet):
     chars = [x or '_' for x in alphabet]
     return ''.join(chars)
@@ -129,6 +138,7 @@ class ChainGrid:
         min_y, max_y = min(ys), max(ys)
         max_length = 0
         best_start = None
+        chars = set()
         for y in range(min_y, max_y + 1):
             length = 0
             start = None
@@ -137,9 +147,18 @@ class ChainGrid:
                 if loc not in self.cells:
                     length = 0
                     start = None
+                    chars = set()
                     continue
                 if start is None:
                     start = loc
+                char = self.cells[loc]
+                if char in chars:
+                    # Loop detected, break the run here
+                    length = 1
+                    start = loc
+                    chars = {char}
+                    continue
+                chars.add(char)
                 length += 1
                 if length > max_length:
                     max_length = length
@@ -237,6 +256,21 @@ class ChainView:
         chains = find_chains(alphabet)
         self.chain_sets.append(chains)
 
+    def extend_chain(self, index, chain, char):
+        chainset = self.chain_sets[index]
+        if chain not in chainset:
+            return
+        chainset.remove(chain)
+        chain += char
+
+        # Look for any other chains that start with the new ending character
+        # and merge them together.
+        for other in list(chainset):
+            if other.startswith(char[-1]):
+                chainset.remove(other)
+                chain += other[1:]
+        chainset.add(chain)
+
     def make_grid(self):
         # By default, the chain set with the longest chain will be written
         # horizontally, and the set with the second-longest will be written
@@ -252,6 +286,63 @@ class ChainView:
                 self.chain_sets[self.across],
                 self.chain_sets[self.down])
         return grid
+
+    def select_extension(self):
+        print()
+        count = len(self.chain_sets)
+        for i, chainset in enumerate(self.chain_sets):
+            n = i + 1
+            text = ' '.join(chainset)
+            print(f'[yellow]{n:3d}[/]. {text}')
+
+        while True:
+            prompt = (
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select "
+                    "a chain set, or [yellow]X[/] to exit")
+            choice = Prompt.ask(prompt).upper()
+            if choice == 'X':
+                return
+            elif PLAIN_INTEGER.match(choice):
+                i = int(choice) - 1
+                if i >= 0 and i < count:
+                    index = i
+                    break
+
+        chainset = self.chain_sets[index]
+        chains = list(chainset)
+        chains.sort(key=len, reverse=True)
+        count = len(chains)
+        print()
+        for i, chain in enumerate(chains):
+            n = i + 1
+            print(f'[yellow]{n:3d}[/]. {chain}')
+
+        while True:
+            prompt = (
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a chain, or "
+                    "[yellow]X[/] to exit")
+            choice = Prompt.ask(prompt).upper()
+            if choice == 'X':
+                return
+            elif PLAIN_INTEGER.match(choice):
+                i = int(choice) - 1
+                if i >= 0 and i < count:
+                    chain = chains[i]
+                    break
+
+        prompt = f"Enter characters to append to '{chain}'"
+        choice = Prompt.ask(prompt).strip().upper()
+        self.extend_chain(index, chain, choice)
+        self.grid = self.make_grid()
+
+    def merge_run(self):
+        chainset = self.chain_sets[self.across]
+        run = self.grid.get_run()
+        run_chains = {x for x in chainset if x in run}
+        if len(run_chains) > 1:
+            chainset = chainset - run_chains
+            chainset.add(run)
+            self.chain_sets[self.across] = chainset
 
     def print(self):
         lines = []
@@ -293,20 +384,28 @@ class ChainView:
             self.print()
             prompt = (
                     "[yellow]A<N>[/] or [yellow]D<N>[/] to set the "
-                    "Across or Down selection, or "
+                    "Across or Down selection,\n"
+                    "[yellow]M[/] to merge chains in the longest run,\n"
+                    "[yellow]E[/] to extend a chain manually, or\n"
                     "[yellow]X[/] to exit chain view")
             choice = Prompt.ask(prompt).strip().upper()
 
             if re.match(r'^A(\d+)$', choice):
                 index = int(choice[1:]) - 1
-                if index >= 0 and index < len(self.chain_sets):
+                if (index >= 0 and index < len(self.chain_sets) and
+                        index != self.down):
                     self.across = index
                     self.grid = self.make_grid()
             elif re.match(r'^D(\d+)$', choice):
                 index = int(choice[1:]) - 1
-                if index >= 0 and index < len(self.chain_sets):
+                if (index >= 0 and index < len(self.chain_sets) and
+                        index != self.across):
                     self.down = index
                     self.grid = self.make_grid()
+            elif choice == 'M':
+                self.merge_run()
+            elif choice == 'E':
+                self.select_extension()
             elif choice == 'X':
                 run = self.grid.get_run()[:26]
                 if len(run) == 26:
@@ -580,7 +679,20 @@ class PuzzleView:
                 lines.append(' ' * 5 + text + '\n')
         print(Panel('\n'.join(lines), title=self.puzzle))
 
-        if self.chain is not None and len(self.chain) == 26:
+        if self.has_complete_chain():
+            lines = ['     ' + self.chain]
+            for i, solution in enumerate(self.solutions):
+                if solution is None:
+                    lines.append('')
+                    continue
+                alpha = reverse_alphabet(solution)
+                alpha = reorder_alphabet(alpha, self.chain)
+                n = i + 1
+                marker = f'[yellow]{n:3d}[/]. '
+                text = serialise_alphabet(alpha)
+                lines.append(marker + f'[green]{text[0]}[/]{text[1:]}')
+            print(Panel('\n'.join(lines), title='Reordered alphabets'))
+
             highlights = 'VWXYZ'
             labels = [
                     f'[bold green]{x}[/]' if x in highlights else x
@@ -594,6 +706,9 @@ class PuzzleView:
                 lines.append(f'[yellow]{step:3d}[/]. ' + ''.join(labels))
             print(Panel('\n'.join(lines), title='Chain decimations'))
 
+    def has_complete_chain(self):
+        return self.chain is not None and len(self.chain) == 26
+
     def save_solutions(self):
         with open(self.solution_path, 'w') as fp:
             for solution in self.solutions:
@@ -603,6 +718,36 @@ class PuzzleView:
                     fp.write(serialise_alphabet(solution))
                 fp.write('\n')
 
+    def select_setting(self):
+        lines = []
+        markers = []
+        for n in range(1, 27):
+            markers.append(f'{n:3d}')
+        lines.append('[yellow]' + ''.join(markers) + '[/]')
+
+        for solution in self.solutions:
+            if solution is None:
+                lines.append('')
+                continue
+            alpha = reverse_alphabet(solution)
+            alpha = reorder_alphabet(alpha, self.chain)
+            text = serialise_alphabet(alpha)
+            lines.append('  ' + '  '.join(text))
+        print('\n' + '\n'.join(lines))
+
+        while True:
+            prompt = (
+                    "\n[yellow]1[/]-[yellow]26[/] to select a setting, or\n"
+                    "[yellow]X[/] to exit")
+            choice = Prompt.ask(prompt).strip().upper()
+            if PLAIN_INTEGER.match(choice):
+                index = int(choice) - 1
+                if index >= 0 and index < 26:
+                    self.chain = self.chain[index:] + self.chain[:index]
+                return
+            elif choice[0] == 'X':
+                return
+
     def run(self):
         while True:
             console.clear()
@@ -610,9 +755,12 @@ class PuzzleView:
 
             count = len(self.ciphers)
             prompt = (
-                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher, "
-                    "[yellow]C[/] to view chains, "
-                    "or [yellow]Q[/] to quit")
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher,\n"
+                    "[yellow]C[/] to view chains, ")
+            if self.has_complete_chain():
+                prompt += "\n[yellow]T[/] to choose a setting, "
+
+            prompt += "or\n[yellow]Q[/] to quit"
             choice = Prompt.ask(prompt).strip().upper()
             if not choice:
                 continue
@@ -632,6 +780,8 @@ class PuzzleView:
                         alphas.append(reverse_alphabet(solution))
                 view = ChainView(alphas)
                 self.chain = view.run()
+            elif choice[0] == 'T' and self.has_complete_chain():
+                self.select_setting()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()

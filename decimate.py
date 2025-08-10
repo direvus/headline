@@ -15,10 +15,17 @@ def decimate(sequence, step):
 
 
 def main(sequence):
+    highlights = 'VWXYZ'
+    labels = [
+            f'[bold green]{x}[/]' if x in highlights else x
+            for x in sequence]
+    print('     ' + ''.join(labels))
     for step in (3, 5, 7, 9, 11):
-        result = decimate(sequence, step)
-        text = ''.join(result)
-        print(f'[yellow]{step:2d}[/]. {text}')
+        decimation = decimate(sequence, step)
+        labels = [
+                f'[bold green]{x}[/]' if x in highlights else x
+                for x in decimation]
+        print(f'[yellow]{step:3d}[/]. ' + ''.join(labels))
 
 
 if __name__ == '__main__':
