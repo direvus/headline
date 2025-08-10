@@ -63,8 +63,8 @@ def reverse_alphabet(alphabet):
             index = alphabet.index(c)
             letters.append(index_letter(index))
         except ValueError:
-            letters.append('_')
-    return ''.join(letters)
+            letters.append(None)
+    return letters
 
 
 def serialise_alphabet(alphabet):
@@ -80,6 +80,8 @@ def find_chains(alphabet):
     if alphabet is None:
         return set()
     values = set(alphabet)
+    if values == {None}:
+        return set()
     chains = set()
     for i, c in enumerate(alphabet):
         source = index_letter(i)
@@ -89,7 +91,7 @@ def find_chains(alphabet):
             continue
         target = c
         chain = [source]
-        while target in ascii_uppercase:
+        while target is not None and target in ascii_uppercase:
             chain.append(target)
             target = alphabet[letter_index(target)]
         chains.add(''.join(chain))
@@ -100,23 +102,21 @@ class ChainGrid:
     MIN_Y = -7
     MAX_Y = 7
 
-    def __init__(self, chain_sets):
-        self.chain_sets = chain_sets
+    def __init__(self, across, down):
         self.cells = {}
         self.candidates_v = set()
         self.candidates_h = set()
         self.run_length = 0
         self.run_start = None
-        across, down = chain_sets[:2]
-        across = sorted(across, key=len, reverse=True)
-        down = sorted(down, key=len, reverse=True)
+        self.across = sorted(across, key=len, reverse=True)
+        self.down = sorted(down, key=len, reverse=True)
 
-        self.add_across(across[0], 0, 0)
+        self.add_across(self.across[0], 0, 0)
         count = 0
         while self.run_length < 26 and count < 4:
-            for chain in down:
+            for chain in self.down:
                 self.find_intersections_down(chain)
-            for chain in across:
+            for chain in self.across:
                 self.find_intersections_across(chain)
             self.run_length, self.run_start = self.find_longest_run()
             count += 1
@@ -226,23 +226,31 @@ class ChainGrid:
 class ChainView:
     def __init__(self, alphabets=None):
         self.chain_sets = []
+        self.grid = None
+        self.across = None
+        self.down = None
         if alphabets:
             for a in alphabets:
                 self.add_alphabet(a)
-        self.grid = self.make_grid()
 
     def add_alphabet(self, alphabet):
         chains = find_chains(alphabet)
         self.chain_sets.append(chains)
 
     def make_grid(self):
-        # The chain set with the longest chain will be written horizontally,
-        # and the set with the second-longest will be written vertically.
-        chain_sets = sorted(
-                self.chain_sets,
-                key=lambda x: max([len(y) for y in x]),
-                reverse=True)
-        grid = ChainGrid(chain_sets)
+        # By default, the chain set with the longest chain will be written
+        # horizontally, and the set with the second-longest will be written
+        # vertically.
+        setlist = [(i, x) for i, x in enumerate(self.chain_sets)]
+        setlist.sort(key=lambda x: max([len(y) for y in x[1]]) if x[1] else 0)
+
+        if self.across is None:
+            self.across = setlist.pop()[0]
+        if self.down is None:
+            self.down = setlist.pop()[0]
+        grid = ChainGrid(
+                self.chain_sets[self.across],
+                self.chain_sets[self.down])
         return grid
 
     def print(self):
@@ -250,28 +258,60 @@ class ChainView:
         for i, chainset in enumerate(self.chain_sets):
             n = i + 1
             text = ' '.join(chainset)
-            lines.append(f'[yellow]{n:3d}[/]. {text}')
+            if i == self.across:
+                marker = ' :arrow_right:'
+            elif i == self.down:
+                marker = ' :arrow_down:'
+            else:
+                marker = '  '
+
+            lines.append(f'[yellow]{marker}{n:2d}[/]. {text}')
         print(Panel('\n'.join(lines), title='Chain listing'))
 
-        print(Panel(str(self.grid), title='Chain grid'))
+        if self.grid:
+            text = str(self.grid)
+            print(Panel(text, title='Chain grid'))
 
-        run = self.grid.get_run()[:26]
-        length = len(run)
-        label = run
-        if length == 26:
-            label = f'[green]{label}[/]'
-        print(Panel(label, title=f'Longest run ([yellow]{length}[/])'))
+            run = self.grid.get_run()[:26]
+            length = len(run)
+            label = run
+            if length == 26:
+                label = f'[green]{label}[/]'
+            print(Panel(label, title=f'Longest run ([yellow]{length}[/])'))
+        else:
+            text = "Populate at least two chain sets to build a grid"
+            print(Panel(text, title='Chain grid'))
+
         print()
 
     def run(self):
-        console.clear()
-        self.print()
-        prompt = "[yellow]Any key[/] to exit to puzzle view"
-        Prompt.ask(prompt)
+        if self.grid is None:
+            self.grid = self.make_grid()
 
-        run = self.grid.get_run()[:26]
-        if len(run) == 26:
-            return run
+        while True:
+            console.clear()
+            self.print()
+            prompt = (
+                    "[yellow]A<N>[/] or [yellow]D<N>[/] to set the "
+                    "Across or Down selection, or "
+                    "[yellow]X[/] to exit chain view")
+            choice = Prompt.ask(prompt).strip().upper()
+
+            if re.match(r'^A(\d+)$', choice):
+                index = int(choice[1:]) - 1
+                if index >= 0 and index < len(self.chain_sets):
+                    self.across = index
+                    self.grid = self.make_grid()
+            elif re.match(r'^D(\d+)$', choice):
+                index = int(choice[1:]) - 1
+                if index >= 0 and index < len(self.chain_sets):
+                    self.down = index
+                    self.grid = self.make_grid()
+            elif choice == 'X':
+                run = self.grid.get_run()[:26]
+                if len(run) == 26:
+                    return run
+                return None
 
 
 class CipherView:
@@ -579,7 +619,9 @@ class PuzzleView:
             if PLAIN_INTEGER.match(choice):
                 index = int(choice) - 1
                 if index >= 0 and index < len(self.ciphers):
-                    view = CipherView(self.ciphers[index])
+                    view = CipherView(
+                            self.ciphers[index],
+                            self.solutions[index])
                     solution = view.run()
                     if solution is not None:
                         self.solutions[index] = solution
