@@ -643,6 +643,7 @@ class PuzzleView:
                 line = NUMBER_PREFIX.sub('', line)
                 self.ciphers.append(line)
                 self.solutions.append(None)
+
         try:
             self.solution_path = os.path.join(DIRNAME, 'solutions', puzzle)
             solution_dir = os.path.dirname(self.solution_path)
@@ -652,11 +653,23 @@ class PuzzleView:
                 index = 0
                 for line in fp:
                     line = line.strip().upper()
+                    if line == '':
+                        break
                     alphabet = [
                             x if x in ascii_uppercase else None
                             for x in line[:26]]
                     self.solutions[index] = alphabet
                     index += 1
+                # Any remaining lines will be:
+                # 1. Chain
+                # 2. Key
+                # 3. Hat
+                lines = [line.strip().upper() for line in fp]
+                if lines:
+                    line = lines.pop()
+                    if line:
+                        # Chain
+                        self.chain = line
         except IOError:
             pass
 
@@ -717,6 +730,10 @@ class PuzzleView:
                 else:
                     fp.write(serialise_alphabet(solution))
                 fp.write('\n')
+
+            fp.write('\n')
+            fp.write(self.chain or '')
+            fp.write('\n')
 
     def select_setting(self):
         lines = []
