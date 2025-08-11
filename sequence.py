@@ -35,6 +35,14 @@ def main(seq):
         if seq == get_sequence(word):
             print(word)
 
+    # Concatenations of two words
+    for i in range(1, length):
+        for word1 in WORDLIST[i]:
+            j = length - i
+            for word2 in WORDLIST[j]:
+                if seq == get_sequence(word1 + word2):
+                    print(f'{word1} {word2}')
+
 
 if __name__ == '__main__':
     seq = [int(x) for x in sys.argv[1:]]
