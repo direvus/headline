@@ -711,7 +711,7 @@ class PuzzleView:
                     f'[bold green]{x}[/]' if x in highlights else x
                     for x in self.chain]
             lines = ['     ' + ''.join(labels)]
-            for step in (3, 5, 7, 9, 11):
+            for step in (3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25):
                 decimation = decimate(self.chain, step)
                 labels = [
                         f'[bold green]{x}[/]' if x in highlights else x
