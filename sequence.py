@@ -16,6 +16,16 @@ def load_wordlist():
             WORDLIST[len(word)].append(word)
 
 
+def build_comparisons(sequence):
+    result = []
+    for i in range(1, len(sequence)):
+        comps = []
+        for j in range(i):
+            comps.append(sequence[i] < sequence[j])
+        result.append(tuple(comps))
+    return tuple(result)
+
+
 def get_sequence(word):
     result = [0] * len(word)
     n = 1
@@ -27,20 +37,33 @@ def get_sequence(word):
     return result
 
 
+def test_word(comps, word):
+    for i in range(1, len(word)):
+        letter = word[i]
+        for j, lt in enumerate(comps[i - 1]):
+            if lt != (letter < word[j]):
+                return False
+    return True
+
+
 def main(seq):
     load_wordlist()
     length = len(seq)
+    comps = build_comparisons(seq)
+
     words = WORDLIST[length]
     for word in words:
-        if seq == get_sequence(word):
+        if test_word(comps, word):
             print(word)
 
     # Concatenations of two words
     for i in range(1, length):
         for word1 in WORDLIST[i]:
+            if not test_word(comps, word1):
+                continue
             j = length - i
             for word2 in WORDLIST[j]:
-                if seq == get_sequence(word1 + word2):
+                if test_word(comps, word1 + word2):
                     print(f'{word1} {word2}')
 
 

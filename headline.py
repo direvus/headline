@@ -494,7 +494,8 @@ class KeyView:
                     self.print_matrix(matrix, matches)
 
             prompt = (
-                    '\n[yellow]<N>[/] to select a step, or '
+                    '\n[yellow]<N>[/] to select a step, '
+                    '[yellow]K[/] to enter a key, or '
                     '[yellow]X[/] to exit')
             choice = Prompt.ask(prompt).strip().upper()
 
@@ -502,8 +503,12 @@ class KeyView:
                 step = int(choice)
                 if step in self.decimations:
                     self.step = step
+            elif choice == 'K':
+                prompt = 'Enter the new key'
+                key = Prompt.ask(prompt).strip().upper()
+                self.key = ''.join([x for x in key if x in self.chain])
             elif choice == 'X':
-                return
+                return self.key
 
 
 class CipherView:
@@ -729,6 +734,7 @@ class PuzzleView:
         self.ciphers = []
         self.solutions = []
         self.chain = None
+        self.key = None
         with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
             for line in fp:
                 line = line.strip().upper()
@@ -894,7 +900,7 @@ class PuzzleView:
                 self.select_setting()
             elif choice[0] == 'K' and self.has_complete_chain():
                 view = KeyView(self.chain)
-                view.run()
+                self.key = view.run()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()
