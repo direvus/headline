@@ -22,6 +22,8 @@ PLAIN_INTEGER = re.compile(r'^\d+$')
 MATCH_LIMIT = 10
 DIRNAME = os.path.dirname(sys.argv[0])
 WORDLIST = defaultdict(list)
+DECIMATIONS = (3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25)
+HIGHLIGHTS = 'VWXYZ'
 
 
 console = Console()
@@ -83,6 +85,10 @@ def serialise_alphabet(alphabet):
 
 def deserialise_alphabet(text):
     return [x if x in ascii_uppercase else None for x in text]
+
+
+def highlight(text):
+    return f'[green]{text}[/]'
 
 
 def find_chains(alphabet):
@@ -413,6 +419,93 @@ class ChainView:
                 return None
 
 
+class KeyView:
+    def __init__(self, chain):
+        self.key = ''
+        self.step = None
+        self.chain = chain
+        self.decimations = {1: self.chain}
+        for step in DECIMATIONS:
+            decimation = decimate(self.chain, step)
+            self.decimations[step] = decimation
+
+    def highlight_chain(self, chain):
+        labels = [highlight(x) if x in HIGHLIGHTS else x for x in chain]
+        return ''.join(labels)
+
+    def make_matrix(self, step, width):
+        chain = ''.join(self.decimations[step])
+        letters = set(chain) - set(self.key)
+        alphabet = self.key + ''.join(sorted(letters))
+
+        matrix = []
+        columns = [[] for _ in range(width)]
+        row = []
+        for i in range(len(alphabet)):
+            mod = i % width
+            letter = alphabet[i]
+            columns[mod].append(letter)
+            row.append(letter)
+            if mod == width - 1:
+                matrix.append(row)
+                row = []
+        if row:
+            matrix.append(row)
+
+        matches = set()
+        for col in columns:
+            for i in range(len(col) - 1):
+                seq = ''.join(col[i:])
+                if seq in chain:
+                    matches |= set(seq)
+                    break
+        return matrix, matches
+
+    def print(self):
+        lines = []
+        for step in sorted(self.decimations.keys()):
+            text = self.highlight_chain(self.decimations[step])
+            marker = '[bold yellow]*[/]' if step == self.step else ' '
+            lines.append(f'{marker}[yellow]{step:4d}[/]. {text}')
+        print(Panel('\n'.join(lines), title='Chain decimations'))
+
+    def print_matrix(self, matrix, matches):
+        lines = []
+        width = len(matrix[0])
+        for row in matrix:
+            cells = [
+                    highlight(x) if x in matches else x
+                    for x in row]
+            lines.append(' '.join(cells))
+        lines.append('')
+        chain = self.decimations[self.step]
+        letters = [highlight(x) if x in matches else x for x in chain]
+        lines.append(''.join(letters))
+        print(Panel('\n'.join(lines), title=f'Hat width {width}'))
+
+    def run(self):
+        while True:
+            console.clear()
+            self.print()
+
+            if self.step:
+                for width in range(7, 13):
+                    matrix, matches = self.make_matrix(self.step, width)
+                    self.print_matrix(matrix, matches)
+
+            prompt = (
+                    '\n[yellow]<N>[/] to select a step, or '
+                    '[yellow]X[/] to exit')
+            choice = Prompt.ask(prompt).strip().upper()
+
+            if PLAIN_INTEGER.match(choice):
+                step = int(choice)
+                if step in self.decimations:
+                    self.step = step
+            elif choice == 'X':
+                return
+
+
 class CipherView:
     def __init__(self, ciphertext=None, alphabet=None):
         self.set_ciphertext(ciphertext)
@@ -706,15 +799,14 @@ class PuzzleView:
                 lines.append(marker + f'[green]{text[0]}[/]{text[1:]}')
             print(Panel('\n'.join(lines), title='Reordered alphabets'))
 
-            highlights = 'VWXYZ'
             labels = [
-                    f'[bold green]{x}[/]' if x in highlights else x
+                    f'[green]{x}[/]' if x in HIGHLIGHTS else x
                     for x in self.chain]
             lines = ['     ' + ''.join(labels)]
-            for step in (3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25):
+            for step in DECIMATIONS:
                 decimation = decimate(self.chain, step)
                 labels = [
-                        f'[bold green]{x}[/]' if x in highlights else x
+                        f'[green]{x}[/]' if x in HIGHLIGHTS else x
                         for x in decimation]
                 lines.append(f'[yellow]{step:3d}[/]. ' + ''.join(labels))
             print(Panel('\n'.join(lines), title='Chain decimations'))
@@ -775,7 +867,8 @@ class PuzzleView:
                     f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher,\n"
                     "[yellow]C[/] to view chains, ")
             if self.has_complete_chain():
-                prompt += "\n[yellow]T[/] to choose a setting, "
+                prompt += ("\n[yellow]T[/] to choose a setting, "
+                        "[yellow]K[/] to find the key, ")
 
             prompt += "or\n[yellow]Q[/] to quit"
             choice = Prompt.ask(prompt).strip().upper()
@@ -799,6 +892,9 @@ class PuzzleView:
                 self.chain = view.run()
             elif choice[0] == 'T' and self.has_complete_chain():
                 self.select_setting()
+            elif choice[0] == 'K' and self.has_complete_chain():
+                view = KeyView(self.chain)
+                view.run()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()
