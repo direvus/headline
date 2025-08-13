@@ -905,6 +905,8 @@ class PuzzleView:
                 lines.append(' ' * 5 + text + '\n')
         cipher_panel = Panel('\n'.join(lines), title='Ciphers')
 
+        setting_panel = None
+        decimation_panel = None
         if self.has_complete_chain():
             setting = []
             lines = ['     ' + self.chain]
