@@ -398,14 +398,16 @@ class ChainView:
 
             if re.match(r'^A(\d+)$', choice):
                 index = int(choice[1:]) - 1
-                if (index >= 0 and index < len(self.chain_sets) and
-                        index != self.down):
+                if index >= 0 and index < len(self.chain_sets):
+                    if index == self.down:
+                        self.down = self.across
                     self.across = index
                     self.grid = self.make_grid()
             elif re.match(r'^D(\d+)$', choice):
                 index = int(choice[1:]) - 1
-                if (index >= 0 and index < len(self.chain_sets) and
-                        index != self.across):
+                if index >= 0 and index < len(self.chain_sets):
+                    if index == self.across:
+                        self.across = self.down
                     self.down = index
                     self.grid = self.make_grid()
             elif choice == 'M':
@@ -420,10 +422,11 @@ class ChainView:
 
 
 class KeyView:
-    def __init__(self, chain):
-        self.key = ''
+    def __init__(self, chain, key='', sequence=None):
+        self.key = key or ''
         self.step = None
         self.chain = chain
+        self.sequence = sequence
         self.decimations = {1: self.chain}
         for step in DECIMATIONS:
             decimation = decimate(self.chain, step)
@@ -461,6 +464,19 @@ class KeyView:
                     break
         return matrix, matches
 
+    def get_sequence(self, matrix, matches):
+        chain = self.decimations[self.step]
+        row = matrix[0]
+
+        # Sort the letters from the top row of the matrix, according to their
+        # order of appearance in the chain
+        letters = sorted(row, key=chain.index)
+
+        # Pair the letters with their index numbers, and sort it according to
+        # the order that the letters appear in the top row.
+        pairs = sorted(enumerate(letters), key=lambda x: row.index(x[1]))
+        return tuple((i + 1 for i, c in pairs))
+
     def print(self):
         lines = []
         for step in sorted(self.decimations.keys()):
@@ -472,13 +488,18 @@ class KeyView:
     def print_matrix(self, matrix, matches):
         lines = []
         width = len(matrix[0])
+        chain = self.decimations[self.step]
+        if len(matches) == len(chain):
+            self.sequence = self.get_sequence(matrix, matches)
+            markers = (f'[yellow]{n:3d}[/]' for n in self.sequence)
+            lines.append(''.join(markers))
+
         for row in matrix:
             cells = [
                     highlight(x) if x in matches else x
                     for x in row]
-            lines.append(' '.join(cells))
+            lines.append('  ' + '  '.join(cells))
         lines.append('')
-        chain = self.decimations[self.step]
         letters = [highlight(x) if x in matches else x for x in chain]
         lines.append(''.join(letters))
         print(Panel('\n'.join(lines), title=f'Hat width {width}'))
@@ -508,7 +529,7 @@ class KeyView:
                 key = Prompt.ask(prompt).strip().upper()
                 self.key = ''.join([x for x in key if x in self.chain])
             elif choice == 'X':
-                return self.key
+                return (self.key, self.sequence)
 
 
 class CipherView:
@@ -735,6 +756,7 @@ class PuzzleView:
         self.solutions = []
         self.chain = None
         self.key = None
+        self.sequence = None
         with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
             for line in fp:
                 line = line.strip().upper()
@@ -762,13 +784,15 @@ class PuzzleView:
                 # Any remaining lines will be:
                 # 1. Chain
                 # 2. Key
-                # 3. Hat
+                # 3. Sequence
+                # 4. Hat
                 lines = [line.strip().upper() for line in fp]
-                if lines:
-                    line = lines.pop()
-                    if line:
-                        # Chain
-                        self.chain = line
+                if len(lines) > 0 and lines[0]:
+                    self.chain = lines[0]
+                if len(lines) > 1 and lines[1]:
+                    self.key = lines[1]
+                if len(lines) > 2 and lines[2]:
+                    self.sequence = (int(x) for x in lines[2].split())
         except IOError:
             pass
 
@@ -831,6 +855,13 @@ class PuzzleView:
 
             fp.write('\n')
             fp.write(self.chain or '')
+            fp.write('\n')
+            fp.write(self.key or '')
+            fp.write('\n')
+            if self.sequence:
+                fp.write(' '.join((str(x) for x in self.sequence)))
+            else:
+                fp.write('')
             fp.write('\n')
 
     def select_setting(self):
@@ -899,8 +930,8 @@ class PuzzleView:
             elif choice[0] == 'T' and self.has_complete_chain():
                 self.select_setting()
             elif choice[0] == 'K' and self.has_complete_chain():
-                view = KeyView(self.chain)
-                self.key = view.run()
+                view = KeyView(self.chain, self.key, self.sequence)
+                self.key, self.sequence = view.run()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()
