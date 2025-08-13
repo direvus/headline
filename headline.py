@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from decimate import decimate
+from sequence import build_comparisons, test_word
 
 
 FREQUENCY = 'ETAOINSHRDLCUMWFGYPBVKJXQZ'
@@ -24,6 +25,7 @@ DIRNAME = os.path.dirname(sys.argv[0])
 WORDLIST = defaultdict(list)
 DECIMATIONS = (3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25)
 HIGHLIGHTS = 'VWXYZ'
+UNKNOWN_LABEL = '[grey30]None[/]'
 
 
 console = Console()
@@ -111,6 +113,223 @@ def find_chains(alphabet):
             target = alphabet[letter_index(target)]
         chains.add(''.join(chain))
     return chains
+
+
+class CipherView:
+    def __init__(self, ciphertext=None, alphabet=None):
+        self.set_ciphertext(ciphertext)
+        if alphabet is None:
+            self.alphabet = [None] * 26
+        else:
+            self.alphabet = alphabet
+        self.words = self.ciphertext.split()
+        self.matches = []
+        self.update_matches()
+
+    def set_ciphertext(self, text):
+        self.ciphertext = text.strip().upper()
+        # If there is a numeric prefix, remove it
+        self.ciphertext = NUMBER_PREFIX.sub('', self.ciphertext)
+
+    def find_word_matches(self, word):
+        # Strip out punctuation characters except apostrophe and hyphen
+        word = NON_WORD_CHARS.sub('', word)
+
+        # Make up a regex character class for all the unsolved letters
+        solved = {c for c in self.alphabet if c is not None}
+        unsolved = set(ascii_uppercase) - solved
+        group = '([' + ''.join(list(unsolved)) + '])'
+        parts = ['^']
+        groups = {}
+        groupnum = 0
+        for c in word:
+            if c not in ascii_uppercase:
+                parts.append(c)
+            else:
+                index = letter_index(c)
+                sub = self.alphabet[index]
+                if sub is None:
+                    if c in groups:
+                        parts.append(f'\\{groups[c]}')
+                    else:
+                        # Use negative lookaheads to require that no previously
+                        # matched groups can match here
+                        groupnum += 1
+                        for i in range(1, groupnum):
+                            parts.append(f'(?!\\{i})')
+                        parts.append(group)
+                        groups[c] = groupnum
+                else:
+                    parts.append(sub)
+        parts.append('$')
+        pattern = re.compile(''.join(parts))
+
+        wordlist = WORDLIST.get(len(word), [])
+        matches = filter(lambda x: pattern.match(x), wordlist)
+        return matches
+
+    def update_matches(self):
+        self.matches = []
+        for i, word in enumerate(self.words):
+            matches = list(self.find_word_matches(word))
+            self.matches.append(matches)
+
+    def set_substitution(self, source, target):
+        index = letter_index(source)
+        self.alphabet[index] = target
+
+    def set_all_substitutions(self, index, target):
+        word = self.words[index]
+        for i, c in enumerate(word):
+            if c in ascii_uppercase:
+                self.set_substitution(c, target[i])
+        self.update_matches()
+
+    def is_word_solved(self, index):
+        word = self.words[index]
+        for c in word:
+            if c in ascii_uppercase:
+                if self.alphabet[letter_index(c)] is None:
+                    return False
+        return True
+
+    def print(self):
+        clears = []
+        parts = []
+        for i, word in enumerate(self.words):
+            clear = substitute(word, self.alphabet)
+            if self.is_word_solved(i):
+                clears.append(f'[green]{clear}[/]')
+            else:
+                clears.append(clear)
+
+            num = len(self.matches[i])
+            if num > MATCH_LIMIT:
+                if num > MATCH_LIMIT ** 2:
+                    style = 'red'
+                else:
+                    style = 'yellow'
+            else:
+                style = 'green'
+
+            text = str(num)
+            if len(text) > len(word):
+                part = '.' * len(word)
+            else:
+                pad = ' ' * (len(word) - len(text))
+                part = pad + text
+            parts.append(f'[{style}]' + part + '[/]')
+        lines = [' '.join(parts)]
+        print(Panel(self.ciphertext + '\n' + ' '.join(clears)))
+
+        for i in range(MATCH_LIMIT):
+            parts = []
+            for j, word in enumerate(self.words):
+                m = self.matches[j]
+                if i < len(m):
+                    part = m[i]
+                    pad = ' ' * (len(word) - len(part))
+                    parts.append(part + pad)
+                else:
+                    parts.append(' ' * len(word))
+            lines.append(' '.join(parts))
+        print(Panel('\n'.join(lines)))
+
+        letters = []
+        targets = []
+        unused = []
+        for i, c in enumerate(ascii_uppercase):
+            if c in self.ciphertext:
+                target = self.alphabet[i]
+                if target:
+                    letters.append(f'[green]{c}[/]')
+                    targets.append(f'[green]{target}[/]')
+                else:
+                    letters.append(f'[red]{c}[/]')
+                    targets.append(' ')
+            else:
+                letters.append(' ')
+                targets.append(' ')
+            if c in self.alphabet:
+                unused.append(' ')
+            else:
+                unused.append(c)
+
+        print(Panel(
+                ' '.join(letters) + '\n' +
+                ' '.join(targets) + '\n' +
+                '[yellow]' + ' '.join(unused) + '[/]'))
+        print()
+
+    def make_prompt(self):
+        max = len(self.words)
+        prompt = (
+                f"[yellow]1[/]-[yellow]{max}[/] to select a matching word,\n"
+                "[yellow]XY[/] to set a substitution, "
+                "[yellow]R[/] to reset,\n"
+                "[yellow]S[/] to save solution and exit, "
+                "or [yellow]X[/] to exit without saving")
+        return prompt
+
+    def select_match(self, index):
+        if index < 0 or index >= len(self.words):
+            return
+        matches = self.matches[index]
+        if len(matches) == 0:
+            return
+        if len(matches) == 1:
+            self.set_all_substitutions(index, matches[0])
+            return
+
+        print()
+        count = min(MATCH_LIMIT, len(matches))
+        for i in range(count):
+            m = matches[i]
+            n = i + 1
+            print(f'[yellow]{n:3d}[/]. {m}')
+
+        while True:
+            prompt = (
+                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a word, or "
+                    "[yellow]X[/] to exit")
+            choice = Prompt.ask(prompt).upper()
+            if choice == 'X':
+                return
+            elif PLAIN_INTEGER.match(choice):
+                i = int(choice) - 1
+                if i >= 0 and i < count:
+                    self.set_all_substitutions(index, matches[i])
+                return
+
+    def run(self):
+        if self.ciphertext is None:
+            text = Prompt.ask("Input the ciphertext")
+            self.set_ciphertext(text)
+
+        while True:
+            console.clear()
+            self.print()
+            prompt = self.make_prompt()
+            choice = Prompt.ask(prompt).upper()
+            if not choice.strip():
+                continue
+            if SUB_PROMPT.match(choice):
+                source = choice[0]
+                target = choice[-1]
+                self.set_substitution(source, target)
+                self.update_matches()
+            elif PLAIN_INTEGER.match(choice):
+                index = int(choice) - 1
+                self.select_match(index)
+            elif choice[0] == 'S':
+                print("OK, saving solution and exiting.\n")
+                return self.alphabet
+            elif choice[0] == 'X':
+                print("OK, exiting and discarding solution.\n")
+                return None
+            elif choice[0] == 'R':
+                self.alphabet = [None] * 26
+                self.update_matches()
 
 
 class ChainGrid:
@@ -532,221 +751,88 @@ class KeyView:
                 return (self.key, self.sequence)
 
 
-class CipherView:
-    def __init__(self, ciphertext=None, alphabet=None):
-        self.set_ciphertext(ciphertext)
-        if alphabet is None:
-            self.alphabet = [None] * 26
-        else:
-            self.alphabet = alphabet
-        self.words = self.ciphertext.split()
-        self.matches = []
-        self.update_matches()
+class HatView:
+    def __init__(self, sequence):
+        self.sequence = sequence
+        self.comparisons = build_comparisons(sequence)
+        self.filter = None
+        self.limit = 30
+        self.hat = None
 
-    def set_ciphertext(self, text):
-        self.ciphertext = text.strip().upper()
-        # If there is a numeric prefix, remove it
-        self.ciphertext = NUMBER_PREFIX.sub('', self.ciphertext)
+    def test_word(self, word):
+        return test_word(self.comparisons, word)
 
-    def find_word_matches(self, word):
-        # Strip out punctuation characters except apostrophe and hyphen
-        word = NON_WORD_CHARS.sub('', word)
+    def get_matches(self):
+        length = len(self.sequence)
+        words = WORDLIST[length]
+        if self.filter:
+            words = filter(lambda x: self.filter in x, words)
+        results = list(filter(self.test_word, words))
 
-        # Make up a regex character class for all the unsolved letters
-        solved = {c for c in self.alphabet if c is not None}
-        unsolved = set(ascii_uppercase) - solved
-        group = '([' + ''.join(list(unsolved)) + '])'
-        parts = ['^']
-        groups = {}
-        groupnum = 0
-        for c in word:
-            if c not in ascii_uppercase:
-                parts.append(c)
-            else:
-                index = letter_index(c)
-                sub = self.alphabet[index]
-                if sub is None:
-                    if c in groups:
-                        parts.append(f'\\{groups[c]}')
-                    else:
-                        # Use negative lookaheads to require that no previously
-                        # matched groups can match here
-                        groupnum += 1
-                        for i in range(1, groupnum):
-                            parts.append(f'(?!\\{i})')
-                        parts.append(group)
-                        groups[c] = groupnum
-                else:
-                    parts.append(sub)
-        parts.append('$')
-        pattern = re.compile(''.join(parts))
-
-        wordlist = WORDLIST.get(len(word), [])
-        matches = filter(lambda x: pattern.match(x), wordlist)
-        return matches
-
-    def update_matches(self):
-        self.matches = []
-        for i, word in enumerate(self.words):
-            matches = list(self.find_word_matches(word))
-            self.matches.append(matches)
-
-    def set_substitution(self, source, target):
-        index = letter_index(source)
-        self.alphabet[index] = target
-
-    def set_all_substitutions(self, index, target):
-        word = self.words[index]
-        for i, c in enumerate(word):
-            if c in ascii_uppercase:
-                self.set_substitution(c, target[i])
-        self.update_matches()
-
-    def is_word_solved(self, index):
-        word = self.words[index]
-        for c in word:
-            if c in ascii_uppercase:
-                if self.alphabet[letter_index(c)] is None:
-                    return False
-        return True
+        # Concatenations of two words
+        for i in range(1, length):
+            j = length - i
+            for a in WORDLIST[i]:
+                # Don't bother with this as a first word if it doesn't match
+                # the first part of the sequence
+                if not self.test_word(a):
+                    continue
+                words = (a + b for b in WORDLIST[j])
+                if self.filter:
+                    words = filter(lambda x: self.filter in x, words)
+                results.extend(filter(self.test_word, words))
+        return results
 
     def print(self):
-        clears = []
-        parts = []
-        for i, word in enumerate(self.words):
-            clear = substitute(word, self.alphabet)
-            if self.is_word_solved(i):
-                clears.append(f'[green]{clear}[/]')
-            else:
-                clears.append(clear)
+        lines = []
+        if self.sequence:
+            label = ' '.join((f'{x:2d}' for x in self.sequence)).strip()
+        else:
+            label = UNKNOWN_LABEL
+        lines.append(f' [yellow]Sequence[/]: {label}')
 
-            num = len(self.matches[i])
-            if num > MATCH_LIMIT:
-                if num > MATCH_LIMIT ** 2:
-                    style = 'red'
-                else:
-                    style = 'yellow'
-            else:
-                style = 'green'
+        label = self.filter or UNKNOWN_LABEL
+        lines.append(f' [yellow]  Filter[/]: {label}')
 
-            text = str(num)
-            if len(text) > len(word):
-                part = '.' * len(word)
-            else:
-                pad = ' ' * (len(word) - len(text))
-                part = pad + text
-            parts.append(f'[{style}]' + part + '[/]')
-        lines = [' '.join(parts)]
-        print(Panel(self.ciphertext + '\n' + ' '.join(clears)))
+        settings_panel = Panel('\n'.join(lines), title='Hat settings')
 
-        for i in range(MATCH_LIMIT):
-            parts = []
-            for j, word in enumerate(self.words):
-                m = self.matches[j]
-                if i < len(m):
-                    part = m[i]
-                    pad = ' ' * (len(word) - len(part))
-                    parts.append(part + pad)
-                else:
-                    parts.append(' ' * len(word))
-            lines.append(' '.join(parts))
-        print(Panel('\n'.join(lines)))
-
-        letters = []
-        targets = []
-        unused = []
-        for i, c in enumerate(ascii_uppercase):
-            if c in self.ciphertext:
-                target = self.alphabet[i]
-                if target:
-                    letters.append(f'[green]{c}[/]')
-                    targets.append(f'[green]{target}[/]')
-                else:
-                    letters.append(f'[red]{c}[/]')
-                    targets.append(' ')
-            else:
-                letters.append(' ')
-                targets.append(' ')
-            if c in self.alphabet:
-                unused.append(' ')
-            else:
-                unused.append(c)
-
-        print(Panel(
-                ' '.join(letters) + '\n' +
-                ' '.join(targets) + '\n' +
-                '[yellow]' + ' '.join(unused) + '[/]'))
-        print()
-
-    def make_prompt(self):
-        max = len(self.words)
-        prompt = (
-                f"[yellow]1[/]-[yellow]{max}[/] to select a matching word,\n"
-                "[yellow]XY[/] to set a substitution, "
-                "[yellow]R[/] to reset,\n"
-                "[yellow]S[/] to save solution and exit, "
-                "or [yellow]X[/] to exit without saving")
-        return prompt
-
-    def select_match(self, index):
-        if index < 0 or index >= len(self.words):
-            return
-        matches = self.matches[index]
-        if len(matches) == 0:
-            return
-        if len(matches) == 1:
-            self.set_all_substitutions(index, matches[0])
-            return
-
-        print()
-        count = min(MATCH_LIMIT, len(matches))
-        for i in range(count):
-            m = matches[i]
+        lines = []
+        self.matches = self.get_matches()
+        num_matches = len(self.matches)
+        for i, m in enumerate(self.matches[:self.limit]):
             n = i + 1
-            print(f'[yellow]{n:3d}[/]. {m}')
+            lines.append(f'[yellow]{n:3d}[/]. {m}')
+        if num_matches > self.limit:
+            excess = num_matches - self.limit
+            lines.append(f'[yellow]... and {excess} more[/]')
+        matches_panel = Panel('\n'.join(lines), title='Matches')
 
-        while True:
-            prompt = (
-                    f"\n[yellow]1[/]-[yellow]{count}[/] to select a word, or "
-                    "[yellow]X[/] to exit")
-            choice = Prompt.ask(prompt).upper()
-            if choice == 'X':
-                return
-            elif PLAIN_INTEGER.match(choice):
-                i = int(choice) - 1
-                if i >= 0 and i < count:
-                    self.set_all_substitutions(index, matches[i])
-                return
+        print(settings_panel)
+        print(matches_panel)
 
     def run(self):
-        if self.ciphertext is None:
-            text = Prompt.ask("Input the ciphertext")
-            self.set_ciphertext(text)
-
         while True:
             console.clear()
             self.print()
-            prompt = self.make_prompt()
-            choice = Prompt.ask(prompt).upper()
-            if not choice.strip():
-                continue
-            if SUB_PROMPT.match(choice):
-                source = choice[0]
-                target = choice[-1]
-                self.set_substitution(source, target)
-                self.update_matches()
-            elif PLAIN_INTEGER.match(choice):
-                index = int(choice) - 1
-                self.select_match(index)
-            elif choice[0] == 'S':
-                print("OK, saving solution and exiting.\n")
-                return self.alphabet
-            elif choice[0] == 'X':
-                print("OK, exiting and discarding solution.\n")
-                return None
-            elif choice[0] == 'R':
-                self.alphabet = [None] * 26
-                self.update_matches()
+
+            prompt = (
+                    '\n[yellow]<N>[/] to select a hat, '
+                    '[yellow]F[/] to set a filter, or '
+                    '[yellow]X[/] to exit')
+            choice = Prompt.ask(prompt).strip().upper()
+
+            if PLAIN_INTEGER.match(choice):
+                choice = int(choice)
+                if choice >= 0 and choice < len(self.matches):
+                    self.hat = self.matches[choice - 1]
+                    return self.hat
+            elif choice == 'F':
+                prompt = (
+                        'Enter the filter text to set, or leave blank to '
+                        'remove the filter')
+                self.filter = Prompt.ask(prompt).strip().upper()
+            elif choice == 'X':
+                return self.hat
 
 
 class PuzzleView:
@@ -755,8 +841,10 @@ class PuzzleView:
         self.ciphers = []
         self.solutions = []
         self.chain = None
+        self.setting = None
         self.key = None
         self.sequence = None
+        self.hat = None
         with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
             for line in fp:
                 line = line.strip().upper()
@@ -792,7 +880,9 @@ class PuzzleView:
                 if len(lines) > 1 and lines[1]:
                     self.key = lines[1]
                 if len(lines) > 2 and lines[2]:
-                    self.sequence = (int(x) for x in lines[2].split())
+                    self.sequence = tuple((int(x) for x in lines[2].split()))
+                if len(lines) > 3 and lines[3]:
+                    self.hat = lines[3]
         except IOError:
             pass
 
@@ -813,9 +903,10 @@ class PuzzleView:
                 alphabet = reverse_alphabet(solution)
                 text = serialise_alphabet(alphabet)
                 lines.append(' ' * 5 + text + '\n')
-        print(Panel('\n'.join(lines), title=self.puzzle))
+        cipher_panel = Panel('\n'.join(lines), title='Ciphers')
 
         if self.has_complete_chain():
+            setting = []
             lines = ['     ' + self.chain]
             for i, solution in enumerate(self.solutions):
                 if solution is None:
@@ -827,19 +918,52 @@ class PuzzleView:
                 marker = f'[yellow]{n:3d}[/]. '
                 text = serialise_alphabet(alpha)
                 lines.append(marker + f'[green]{text[0]}[/]{text[1:]}')
-            print(Panel('\n'.join(lines), title='Reordered alphabets'))
+                setting.append(text[0])
+            text = '\n'.join(lines)
+            setting_panel = Panel(text, title='Reordered alphabets')
+            self.setting = ''.join(setting)
 
             labels = [
-                    f'[green]{x}[/]' if x in HIGHLIGHTS else x
+                    highlight(x) if x in HIGHLIGHTS else x
                     for x in self.chain]
             lines = ['     ' + ''.join(labels)]
             for step in DECIMATIONS:
                 decimation = decimate(self.chain, step)
                 labels = [
-                        f'[green]{x}[/]' if x in HIGHLIGHTS else x
+                        highlight(x) if x in HIGHLIGHTS else x
                         for x in decimation]
                 lines.append(f'[yellow]{step:3d}[/]. ' + ''.join(labels))
-            print(Panel('\n'.join(lines), title='Chain decimations'))
+            text = '\n'.join(lines)
+            decimation_panel = Panel(text, title='Chain decimations')
+
+        lines = []
+        label = self.chain or UNKNOWN_LABEL
+        lines.append(f' [yellow]   Chain[/]: {label}')
+
+        label = self.setting or UNKNOWN_LABEL
+        lines.append(f' [yellow] Setting[/]: {label}')
+
+        label = self.key or UNKNOWN_LABEL
+        lines.append(f' [yellow]     Key[/]: {label}')
+
+        if self.sequence:
+            label = ' '.join((f'{x:2d}' for x in self.sequence)).strip()
+        else:
+            label = UNKNOWN_LABEL
+        lines.append(f' [yellow]Sequence[/]: {label}')
+
+        label = self.hat or UNKNOWN_LABEL
+        lines.append(f' [yellow]     Hat[/]: {label}')
+
+        summary_panel = Panel('\n'.join(lines), title=self.puzzle)
+
+        print(summary_panel)
+        print(cipher_panel)
+
+        if setting_panel:
+            print(setting_panel)
+        if decimation_panel:
+            print(decimation_panel)
 
     def has_complete_chain(self):
         return self.chain is not None and len(self.chain) == 26
@@ -862,6 +986,8 @@ class PuzzleView:
                 fp.write(' '.join((str(x) for x in self.sequence)))
             else:
                 fp.write('')
+            fp.write('\n')
+            fp.write(self.hat or '')
             fp.write('\n')
 
     def select_setting(self):
@@ -904,8 +1030,11 @@ class PuzzleView:
                     f"\n[yellow]1[/]-[yellow]{count}[/] to select a cipher,\n"
                     "[yellow]C[/] to view chains, ")
             if self.has_complete_chain():
-                prompt += ("\n[yellow]T[/] to choose a setting, "
+                prompt += (
+                        "\n[yellow]T[/] to choose a setting, "
                         "[yellow]K[/] to find the key, ")
+                if self.sequence:
+                    prompt += '[yellow]H[/] to find the hat, '
 
             prompt += "or\n[yellow]Q[/] to quit"
             choice = Prompt.ask(prompt).strip().upper()
@@ -932,6 +1061,9 @@ class PuzzleView:
             elif choice[0] == 'K' and self.has_complete_chain():
                 view = KeyView(self.chain, self.key, self.sequence)
                 self.key, self.sequence = view.run()
+            elif choice[0] == 'H' and self.sequence:
+                view = HatView(self.sequence)
+                self.hat = view.run()
             elif choice[0] == 'Q':
                 print("OK, quitting.\n")
                 self.save_solutions()
