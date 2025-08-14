@@ -845,7 +845,7 @@ class PuzzleView:
         self.key = None
         self.sequence = None
         self.hat = None
-        with open(os.path.join(DIRNAME, 'puzzles', puzzle), 'r') as fp:
+        with open(self.puzzle, 'r') as fp:
             for line in fp:
                 line = line.strip().upper()
                 # If there is a numeric prefix, remove it
@@ -1074,15 +1074,13 @@ class PuzzleView:
 
 def main(args):
     load_wordlist()
-    if args.interactive:
-        menu = PuzzleView(args.puzzle)
-        menu.run()
+    menu = PuzzleView(args.puzzle)
+    menu.run()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--interactive', action='store_true')
-    parser.add_argument('-p', '--puzzle')
+    parser.add_argument('puzzle', help="path to puzzle file")
 
     args = parser.parse_args()
     main(args)

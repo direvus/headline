@@ -3,5 +3,6 @@ solutions/
 
 .*.sw?
 
+.venv/
 __pycache__/
 *.py[co]
