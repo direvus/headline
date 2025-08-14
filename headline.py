@@ -775,6 +775,7 @@ class HatView:
         self.filter = None
         self.limit = 30
         self.hat = None
+        self.matches = []
 
     def test_word(self, word):
         return test_word(self.comparisons, word)
@@ -800,10 +801,10 @@ class HatView:
                 results.extend(filter(self.test_word, words))
         return results
 
-    def print(self):
+    def print_settings(self):
         lines = []
         if self.sequence:
-            label = ' '.join((f'{x:2d}' for x in self.sequence)).strip()
+            label = ' '.join((str(x) for x in self.sequence))
         else:
             label = UNKNOWN_LABEL
         lines.append(f' [yellow]Sequence[/]: {label}')
@@ -811,30 +812,44 @@ class HatView:
         label = self.filter or UNKNOWN_LABEL
         lines.append(f' [yellow]  Filter[/]: {label}')
 
-        settings_panel = Panel('\n'.join(lines), title='Hat settings')
+        panel = Panel('\n'.join(lines), title='Hat settings')
+        print(panel)
+
+    def load_matches(self):
+        self.print_settings()
+        text = "[grey30]Loading sequence matches ...[/]"
+        print(Panel(text, title='Matches'))
+        self.matches = self.get_matches()
+
+    def print(self):
+        self.print_settings()
 
         lines = []
-        self.matches = self.get_matches()
         num_matches = len(self.matches)
-        for i, m in enumerate(self.matches[:self.limit]):
-            n = i + 1
-            lines.append(f'[yellow]{n:3d}[/]. {m}')
-        if num_matches > self.limit:
-            excess = num_matches - self.limit
-            lines.append(f'[yellow]... and {excess} more[/]')
+        if num_matches > 0:
+            for i, m in enumerate(self.matches[:self.limit]):
+                n = i + 1
+                lines.append(f'[yellow]{n:3d}[/]. {m}')
+            if num_matches > self.limit:
+                excess = num_matches - self.limit
+                lines.append(f'[yellow]... and {excess} more[/]')
+        else:
+            lines.append("[red]No matches![/]")
         matches_panel = Panel('\n'.join(lines), title='Matches')
 
-        print(settings_panel)
         print(matches_panel)
 
     def run(self):
+        console.clear()
+        self.load_matches()
         while True:
             console.clear()
             self.print()
 
             prompt = (
                     '\n[yellow]<N>[/] to select a hat, '
-                    '[yellow]F[/] to set a filter, or '
+                    '[yellow]F[/] to set a filter, '
+                    '[yellow]H[/] to enter a hat manually, or '
                     '[yellow]X[/] to exit')
             choice = Prompt.ask(prompt).strip().upper()
 
@@ -848,6 +863,18 @@ class HatView:
                         'Enter the filter text to set, or leave blank to '
                         'remove the filter')
                 self.filter = Prompt.ask(prompt).strip().upper()
+                console.clear()
+                self.load_matches()
+            elif choice == 'H':
+                prompt = 'Enter your hat text'
+                choice = Prompt.ask(prompt).strip().upper()
+                if self.test_word(choice):
+                    self.hat = choice
+                    return self.hat
+                prompt = (
+                        'Hat text did not match the sequence, press '
+                        'Enter to return to the menu')
+                Prompt.ask(prompt)
             elif choice == 'X':
                 return self.hat
 
@@ -966,7 +993,7 @@ class PuzzleView:
         lines.append(f' [yellow]     Key[/]: {label}')
 
         if self.sequence:
-            label = ' '.join((f'{x:2d}' for x in self.sequence)).strip()
+            label = ' '.join((str(x) for x in self.sequence))
         else:
             label = UNKNOWN_LABEL
         lines.append(f' [yellow]Sequence[/]: {label}')
