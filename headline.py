@@ -179,7 +179,7 @@ class CipherView:
         self.alphabet[index] = target
 
     def set_all_substitutions(self, index, target):
-        word = self.words[index]
+        word = NON_WORD_CHARS.sub('', self.words[index])
         for i, c in enumerate(word):
             if c in ascii_uppercase:
                 self.set_substitution(c, target[i])
