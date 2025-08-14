@@ -194,14 +194,24 @@ class CipherView:
         return True
 
     def print(self):
+        numbers = []
         clears = []
         parts = []
         for i, word in enumerate(self.words):
             clear = substitute(word, self.alphabet)
+            num = str(i + 1)
+            if len(num) > len(word):
+                num = '.'
+            else:
+                pad = ' ' * (len(word) - len(num))
+                num = pad + num
+
             if self.is_word_solved(i):
                 clears.append(f'[green]{clear}[/]')
+                numbers.append(num)
             else:
                 clears.append(clear)
+                numbers.append(f'[yellow]{num}[/]')
 
             num = len(self.matches[i])
             if num > MATCH_LIMIT:
@@ -219,8 +229,14 @@ class CipherView:
                 pad = ' ' * (len(word) - len(text))
                 part = pad + text
             parts.append(f'[{style}]' + part + '[/]')
+
         lines = [' '.join(parts)]
-        print(Panel(self.ciphertext + '\n' + ' '.join(clears)))
+
+        text = (
+                ' '.join(numbers) + '\n' +
+                self.ciphertext + '\n' +
+                ' '.join(clears))
+        print(Panel(text, title='Cipher'))
 
         for i in range(MATCH_LIMIT):
             parts = []
@@ -233,7 +249,7 @@ class CipherView:
                 else:
                     parts.append(' ' * len(word))
             lines.append(' '.join(parts))
-        print(Panel('\n'.join(lines)))
+        print(Panel('\n'.join(lines), title='Matches'))
 
         letters = []
         targets = []
@@ -255,10 +271,11 @@ class CipherView:
             else:
                 unused.append(c)
 
-        print(Panel(
+        text = (
                 ' '.join(letters) + '\n' +
                 ' '.join(targets) + '\n' +
-                '[yellow]' + ' '.join(unused) + '[/]'))
+                '[yellow]' + ' '.join(unused) + '[/]')
+        print(Panel(text, title='Substitutions'))
         print()
 
     def make_prompt(self):
