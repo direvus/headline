@@ -517,6 +517,8 @@ class ChainView:
         # By default, the chain set with the longest chain will be written
         # horizontally, and the set with the second-longest will be written
         # vertically.
+        if len(self.chain_sets) < 2:
+            return None
         setlist = [(i, x) for i, x in enumerate(self.chain_sets)]
         setlist.sort(key=lambda x: max([len(y) for y in x[1]]) if x[1] else 0)
 
@@ -578,6 +580,8 @@ class ChainView:
         self.grid = self.make_grid()
 
     def merge_run(self):
+        if self.across is None or self.grid is None:
+            return
         chainset = self.chain_sets[self.across]
         run = self.grid.get_run()
         run_chains = {x for x in chainset if x in run}
@@ -611,6 +615,10 @@ class ChainView:
             if length == 26:
                 label = f'[green]{label}[/]'
             print(Panel(label, title=f'Longest run ([yellow]{length}[/])'))
+
+            if length < 26:
+                missing = set(ascii_uppercase) - set(run)
+                print(Panel(' '.join(missing), title='Missing letters'))
         else:
             text = "Populate at least two chain sets to build a grid"
             print(Panel(text, title='Chain grid'))
@@ -651,9 +659,10 @@ class ChainView:
             elif choice == 'E':
                 self.select_extension()
             elif choice == 'X':
-                run = self.grid.get_run()[:26]
-                if len(run) == 26:
-                    return run
+                if self.grid:
+                    run = self.grid.get_run()[:26]
+                    if len(run) == 26:
+                        return run
                 return None
 
 
@@ -955,7 +964,7 @@ class PuzzleView:
             setting = []
             lines = ['     ' + self.chain]
             for i, solution in enumerate(self.solutions):
-                if solution is None:
+                if solution is None or set(solution) == {None}:
                     lines.append('')
                     continue
                 alpha = reverse_alphabet(solution)
