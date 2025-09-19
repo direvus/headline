@@ -21,6 +21,8 @@ NUMBER_PREFIX = re.compile(r'^\d+\.?\s*')
 SUB_PROMPT = re.compile(r'^[A-Z].?[A-Z]$')
 PLAIN_INTEGER = re.compile(r'^\d+$')
 MATCH_LIMIT = 10
+MIN_HAT_SIZE = 5
+MAX_HAT_SIZE = 12
 DIRNAME = os.path.dirname(sys.argv[0])
 WORDLIST = defaultdict(list)
 DECIMATIONS = (3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25)
@@ -755,7 +757,7 @@ class KeyView:
             self.print()
 
             if self.step:
-                for width in range(7, 13):
+                for width in range(MIN_HAT_SIZE, MAX_HAT_SIZE + 1):
                     matrix, matches = self.make_matrix(self.step, width)
                     self.print_matrix(matrix, matches)
 
